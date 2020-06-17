@@ -1,9 +1,12 @@
 package guhao.service.impl;
 
+import com.google.common.hash.BloomFilter;
+import com.google.common.hash.Funnels;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,12 +25,26 @@ import guhao.mapper.SeckillOrderMapper;
 import guhao.service.SeckillService;
 
 import java.math.BigDecimal;
+import java.nio.charset.Charset;
 import java.util.Date;
 import java.util.List;
 
 
 @Service
+@DependsOn({"redisTemplate","seckillMapper"})
 public class SeckillServiceImpl implements SeckillService {
+    BloomFilter<String> bf = BloomFilter.create(Funnels.stringFunnel(Charset.defaultCharset()), 10000, 0.01);;
+
+    @Autowired
+    public SeckillServiceImpl(SeckillMapper seckillMapper, SeckillOrderMapper seckillOrderMapper, RedisTemplate redisTemplate) {
+        this.seckillMapper = seckillMapper;
+        this.seckillOrderMapper = seckillOrderMapper;
+        this.redisTemplate = redisTemplate;
+        List<Seckill> all = findAll();
+        for (Seckill seckill : all) {
+            bf.put(String.valueOf(seckill.getSeckillId()));
+        }
+    }
 
     private Logger logger = LoggerFactory.getLogger(this.getClass());
 
@@ -36,14 +53,11 @@ public class SeckillServiceImpl implements SeckillService {
     //设置秒杀redis缓存的key
     private final String key = "seckill";
 
-    @Autowired
-    private SeckillMapper seckillMapper;
+    private final SeckillMapper seckillMapper;
 
-    @Autowired
-    private SeckillOrderMapper seckillOrderMapper;
+    private final SeckillOrderMapper seckillOrderMapper;
 
-    @Autowired
-    private RedisTemplate redisTemplate;
+    private final RedisTemplate redisTemplate;
 
     @Override
     public List<Seckill> findAll() {
@@ -66,7 +80,9 @@ public class SeckillServiceImpl implements SeckillService {
     @Override
     //@Cacheable(cacheNames = "Seckill",key ="#seckillId" )
     public Seckill findById(long seckillId) {
-        return seckillMapper.findById(seckillId);
+        if(bf.mightContain(String.valueOf(seckillId)))
+            return seckillMapper.findById(seckillId);
+        return null;
     }
 
     @Override
